@@ -1,0 +1,13 @@
+{
+  "name": "qzh",
+  "version": "0.1.0",
+  "summary": "监控服务开关：一键查询并启停后台监控服务",
+  "description": "查看后台监控服务的运行状态，需要时一键关闭或重新打开，重启后可自动恢复，适合临时排查问题或释放资源。",
+  "keywords": ["qzh", "qzhddr", "监控"],
+  "mode": "command",
+  "cmd": "./qzh-exec",
+  "args": [],
+  "env": null,
+  "timeout": 15,
+  "requiredPath": ["jq"]
+}

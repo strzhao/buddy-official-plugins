@@ -1,0 +1,13 @@
+{
+  "name": "hello",
+  "version": "0.1.0",
+  "summary": "问候示例：输入任意内容回显一句问候",
+  "description": "内置入门示例插件，把你的输入原样回显成一句问候。用来演示插件的输入输出方式，方便开发者照着写自己的插件。",
+  "keywords": ["hello", "demo", "示例", "问候"],
+  "mode": "stdin",
+  "cmd": "./hello.sh",
+  "args": [],
+  "env": null,
+  "timeout": 5,
+  "requiredPath": null
+}

@@ -1,0 +1,207 @@
+#!/bin/bash
+# qzh-exec — QzhddrSrv 监控服务控制（command mode 插件）
+#
+# 数据流：读 stdin JSON {query, sessionId, cwd, selection?} → 路由：
+#   selection 空（首次查询）→ pgrep 查状态 + 写候选 JSON 到 $BUDDY_OUTPUT_CANDIDATES
+#   selection="stop"        → sudo launchctl bootout service + update（关闭，可逆）
+#   selection="start"       → sudo launchctl bootstrap service + update（恢复）
+#
+# QzhddrSrv 真实机制（实测，0 假设）：3 个 launchd 项全部 KeepAlive:true + RunAtLoad:true + root:wheel：
+#   com.cyberserval.qzhddr.service  （system Daemon，主监控 QzhddrSrv + Scanner XPC，发热/监控元凶）
+#   com.cyberserval.qzhddr.update   （system Daemon，更新服务）
+#   com.cyberserval.qzhddr.agent    （gui/501 用户域 Agent，CPU 极低）
+# KeepAlive ⇒ kill 无效（launchd 立即重启）；唯一有效停止 = sudo launchctl bootout system/<label>。
+# bootout 是临时的（plist 仍在 + RunAtLoad ⇒ 重启自动恢复，恰好满足可逆诉求）。
+#
+# 安全红线（C2/C5）：selection 仅标识字符串，禁含命令/路径；执行权留本插件。
+# sudoers 免密（C7）：见 setup.sh，NOPASSWD 仅 4 条精确 launchctl 命令。
+#
+# 容错：bootout 已卸载 / bootstrap 已加载 → 友好文本（非 error）；非 0 → stderr 中文错误。
+
+set -uo pipefail
+
+# MARK: - 1. 读 stdin JSON + jq 解析
+
+INPUT=$(cat)
+
+QUERY=$(echo "$INPUT" | jq -r '.query // ""' 2>/dev/null)
+SELECTION=$(echo "$INPUT" | jq -r '.selection // empty' 2>/dev/null)
+
+# 注：command route 输入 "qzh" 经 launcher stripKeywordPrefix 剥关键词后 query 为空，
+# 这属正常首次查询（selection 空 → 走下方状态查询 + 写候选）。qzh 是无参状态/控制插件，
+# 不依赖 query 内容，故不设"空 query"守卫（守卫会误杀关键词-only 的正常首查）。
+
+# MARK: - 2. 常量（launchd labels + plist 路径）
+
+SERVICE_LABEL="com.cyberserval.qzhddr.service"
+UPDATE_LABEL="com.cyberserval.qzhddr.update"
+AGENT_LABEL="com.cyberserval.qzhddr.agent"
+
+SERVICE_PLIST="/Library/LaunchDaemons/${SERVICE_LABEL}.plist"
+UPDATE_PLIST="/Library/LaunchDaemons/${UPDATE_LABEL}.plist"
+
+# 主进程名（pgrep -x 精确匹配）
+SERVICE_PROC="QzhddrSrv"
+
+# MARK: - 3. 辅助函数
+
+# 查询单个组件存活（pgrep -x exit 0=存在，1=不存在）。
+# 仅返回 exit code（0=存在，1=不存在），状态文本由调用方格式化（避免命令替换捕获多行 echo）。
+check_alive() {
+    local proc="$1"
+    if pgrep -x "$proc" >/dev/null 2>&1; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# 把 check_alive 的 exit code 转成中文状态文本。
+status_text() {
+    if check_alive "$1"; then
+        echo "运行中"
+    else
+        echo "已停止"
+    fi
+}
+
+# 写候选 JSON 到 $BUDDY_OUTPUT_CANDIDATES（首次查询时调用）
+emit_candidates() {
+    local out="${BUDDY_OUTPUT_CANDIDATES:-}"
+    if [ -z "$out" ]; then
+        return  # 框架未注入环境变量 → 不写（降级，只展示 stdout 状态文本）
+    fi
+    # 候选 JSON：status（查看）+ stop（关闭）+ start（打开）。selection 仅标识，禁含命令。
+    printf '%s' \
+'[{"id":"status","title":"查看状态","subtitle":"刷新监控服务运行状态","selection":"status"},{"id":"stop","title":"关闭监控","subtitle":"停止 service + update（可逆，重启自愈）","selection":"stop"},{"id":"start","title":"打开监控","subtitle":"恢复 service + update","selection":"start"}]' \
+        > "$out"
+}
+
+# MARK: - 4. 路由
+
+if [ -z "$SELECTION" ]; then
+    # ========== 首次查询：状态文本 + 写候选 ==========
+    SVC_STATUS=$(status_text "$SERVICE_PROC")
+    # update 进程名不确定（qzhddrupdate / QzhddrUpdate），逐个探测
+    if check_alive "qzhddrupdate" || check_alive "QzhddrUpdate"; then
+        UPD_STATUS="运行中"
+    else
+        UPD_STATUS="已停止"
+    fi
+
+    # 组装状态文本（场景1.P2：stdout 非空 + exit 0）
+    echo "QzhddrSrv 监控状态："
+    echo "  主服务 ($SERVICE_PROC): $SVC_STATUS"
+    echo "  更新服务: $UPD_STATUS"
+    if [ "$SVC_STATUS" = "运行中" ]; then
+        echo "提示：选中「关闭监控」可临时停止（重启自动恢复）"
+    else
+        echo "提示：选中「打开监控」可恢复运行"
+    fi
+
+    # 写候选列表（场景1.P1：候选可达）
+    emit_candidates
+    exit 0
+
+elif [ "$SELECTION" = "status" ]; then
+    # ========== 查看状态：重新 pgrep 刷新当前运行状态 ==========
+    SVC_STATUS=$(status_text "$SERVICE_PROC")
+    if check_alive "qzhddrupdate" || check_alive "QzhddrUpdate"; then
+        UPD_STATUS="运行中"
+    else
+        UPD_STATUS="已停止"
+    fi
+
+    echo "QzhddrSrv 监控状态："
+    echo "  主服务 ($SERVICE_PROC): $SVC_STATUS"
+    echo "  更新服务: $UPD_STATUS"
+    if [ "$SVC_STATUS" = "运行中" ]; then
+        echo "提示：选中「关闭监控」可临时停止（重启自动恢复）"
+    else
+        echo "提示：选中「打开监控」可恢复运行"
+    fi
+    # 不写候选（status 是查询终点，选中后只展示状态文本）
+    exit 0
+
+elif [ "$SELECTION" = "stop" ]; then
+    # ========== 关闭：bootout service + update ==========
+    # sudo 免密依赖 /etc/sudoers.d/qzhddr-launcher（setup.sh 一次性配置）
+    ERRORS=""
+    # bootout service（主监控）。用绝对路径 /bin/launchctl 与 sudoers 精确匹配（C7）
+    if ! sudo launchctl bootout system/com.cyberserval.qzhddr.service >/dev/null 2>&1; then
+        # bootout 已卸载会返回非 0（No service），属正常 → 不计入错误
+        if launchctl print system/com.cyberserval.qzhddr.service >/dev/null 2>&1; then
+            ERRORS="${ERRORS}service bootout 失败（可能权限不足或服务繁忙）；"
+        fi
+    fi
+    # bootout update（避免 update 自愈拉起 service，假设 1 待冒烟验证）
+    if ! sudo launchctl bootout system/com.cyberserval.qzhddr.update >/dev/null 2>&1; then
+        if launchctl print system/com.cyberserval.qzhddr.update >/dev/null 2>&1; then
+            ERRORS="${ERRORS}update bootout 失败；"
+        fi
+    fi
+
+    if [ -n "$ERRORS" ]; then
+        # 场景6.P1/P3：权限失败 → stderr 中文错误（exitCode!=0 && stdout 空 → 呈现 stderr）
+        echo "关闭监控时遇到问题：$ERRORS" >&2
+        echo "请确认已运行 setup.sh 配置 sudoers 免密，或手动执行 sudo launchctl bootout"
+        exit 1
+    fi
+
+    # 场景2.P3：成功后状态刷新。bootout 后 launchd 发 SIGTERM，QzhddrSrv 实测约 5s 退出；轮询确认。
+    AFTER="运行中"
+    for _ in 1 2 3 4 5 6 7; do
+        sleep 1
+        AFTER=$(status_text "$SERVICE_PROC")
+        [ "$AFTER" = "已停止" ] && break
+    done
+    if [ "$AFTER" = "已停止" ]; then
+        echo "已关闭监控（service + update 已 bootout）"
+        echo "可逆：重启电脑自动恢复，或选中「打开监控」立即恢复"
+    else
+        echo "已发送关闭指令，进程仍在退出中（launchd 将 SIGKILL，稍后自动停止）"
+    fi
+    exit 0
+
+elif [ "$SELECTION" = "start" ]; then
+    # ========== 打开：bootstrap service + update ==========
+    ERRORS=""
+    # bootstrap service（plist 仍在，bootout 只卸载不删 plist）
+    if ! sudo launchctl bootstrap system /Library/LaunchDaemons/com.cyberserval.qzhddr.service.plist >/dev/null 2>&1; then
+        # bootstrap 已加载会返回非 0（already），属正常
+        if ! launchctl print system/com.cyberserval.qzhddr.service >/dev/null 2>&1; then
+            ERRORS="${ERRORS}service bootstrap 失败（plist 可能缺失）；"
+        fi
+    fi
+    # bootstrap update
+    if ! sudo launchctl bootstrap system /Library/LaunchDaemons/com.cyberserval.qzhddr.update.plist >/dev/null 2>&1; then
+        if ! launchctl print system/com.cyberserval.qzhddr.update >/dev/null 2>&1; then
+            ERRORS="${ERRORS}update bootstrap 失败；"
+        fi
+    fi
+
+    if [ -n "$ERRORS" ]; then
+        echo "打开监控时遇到问题：$ERRORS" >&2
+        echo "请确认 plist 文件存在：$SERVICE_PLIST"
+        exit 1
+    fi
+
+    # bootstrap 后 launchd 按 RunAtLoad 拉起进程，轮询确认（实测启动需数秒）
+    AFTER="已停止"
+    for _ in 1 2 3 4 5; do
+        sleep 1
+        AFTER=$(status_text "$SERVICE_PROC")
+        [ "$AFTER" = "运行中" ] && break
+    done
+    if [ "$AFTER" = "运行中" ]; then
+        echo "已打开监控（service + update 已 bootstrap，RunAtLoad 已拉起）"
+    else
+        echo "已发送打开指令，进程当前 ${AFTER}（RunAtLoad 可能需要更多时间）"
+    fi
+    exit 0
+
+else
+    # 未知 selection（C2 安全：不执行任何未知动作）
+    echo "未知操作：${SELECTION}（仅支持 status/stop/start）" >&2
+    exit 1
+fi

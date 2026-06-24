@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "name": "buddy-official",
+  "description": "Claude Code Buddy 官方插件目录",
+  "owner": {
+    "name": "stringzhao",
+    "homepage": "https://github.com/stringzhao"
+  },
+  "plugins": [
+    {
+      "name": "hello",
+      "version": "0.1.0",
+      "description": "演示插件协议的入门示例",
+      "category": "example",
+      "author": { "name": "stringzhao" },
+      "source": {
+        "source": "git-subdir",
+        "url": "https://github.com/stringzhao/buddy-official-plugins",
+        "path": "plugins/hello",
+        "ref": "main"
+      }
+    },
+    {
+      "name": "qr",
+      "version": "0.1.0",
+      "description": "生成二维码图片并复制到剪贴板",
+      "category": "utility",
+      "author": { "name": "stringzhao" },
+      "source": {
+        "source": "git-subdir",
+        "url": "https://github.com/stringzhao/buddy-official-plugins",
+        "path": "plugins/qr",
+        "ref": "main"
+      }
+    },
+    {
+      "name": "qzh",
+      "version": "0.1.0",
+      "description": "查询并开关 QzhddrSrv 监控服务",
+      "category": "utility",
+      "author": { "name": "stringzhao" },
+      "source": {
+        "source": "git-subdir",
+        "url": "https://github.com/stringzhao/buddy-official-plugins",
+        "path": "plugins/qzh",
+        "ref": "main"
+      }
+    }
+  ]
+}
