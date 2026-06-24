@@ -1,0 +1,41 @@
+marketplace.json
+  44ddbc11da2da507 1-50
+README.md
+  44ddbc11da2da507 1-42
+.gitignore
+  44ddbc11da2da507 1-5
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8-ntes.9",
+  "base_commit_sha": "9cb678dbe1de6d25c789636807fca6978b96a280",
+  "prompts": {
+    "44ddbc11da2da507": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "336e97a9-74c8-4863-a79d-29d37bf1bd6c",
+        "model": "glm-5.2"
+      },
+      "human_author": "stringzhao",
+      "messages": [],
+      "total_additions": 97,
+      "total_deletions": 0,
+      "accepted_lines": 97,
+      "overriden_lines": 0,
+      "per_file_stats": {
+        ".gitignore": {
+          "additions": 5,
+          "accepted_lines": 5
+        },
+        "README.md": {
+          "additions": 42,
+          "accepted_lines": 42
+        },
+        "marketplace.json": {
+          "additions": 50,
+          "accepted_lines": 50
+        }
+      }
+    }
+  }
+}
