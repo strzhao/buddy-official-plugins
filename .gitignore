@@ -1,5 +1,2 @@
-# 编译产物不入库（qr-gen universal binary 由 app 端 Makefile build-qr-gen 编译生成）
-plugins/qr/qr-gen
-
 # macOS
 .DS_Store
