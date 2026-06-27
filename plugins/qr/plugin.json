@@ -1,13 +1,17 @@
 {
   "name": "qr",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "summary": "二维码生成器：输入文本或网址生成可扫码图片",
   "description": "把输入的文本或网址变成一张二维码图片，点击可复制到剪贴板。适合把链接快速转移到手机扫描。",
   "keywords": ["qr", "qrcode", "二维码", "码"],
   "mode": "command",
-  "cmd": "./qr-gen",
+  "cmd": "./qr-gen.sh",
   "args": [],
   "env": null,
   "timeout": 10,
-  "requiredPath": null
+  "requiredPath": ["qrencode", "jq"],
+  "deps": [
+    { "check": "qrencode", "brew": "qrencode", "label": "二维码生成库" },
+    { "check": "jq", "brew": "jq", "label": "JSON 解析工具" }
+  ]
 }

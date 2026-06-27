@@ -24,8 +24,8 @@
     },
     {
       "name": "qr",
-      "version": "0.1.0",
-      "description": "生成二维码图片并复制到剪贴板",
+      "version": "0.2.0",
+      "description": "二维码生成器：输入文本或网址生成可扫码图片",
       "category": "utility",
       "author": {
         "name": "stringzhao"

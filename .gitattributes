@@ -1,4 +1,0 @@
-# qr-gen universal binary 预编译入库（热更新兼容：用户侧 release app 无编译环境，
-# git clone 拉来即可用）。标记为 binary，GitHub 不渲染 diff，防误改。
-# 注：过渡方案，qr shell 化（qrencode）单独任务会移除 binary 改 shell 脚本。
-plugins/qr/qr-gen binary
