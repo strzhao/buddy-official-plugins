@@ -1,0 +1,35 @@
+{
+  "name": "snip-mgr",
+  "version": "0.1.0",
+  "summary": "文本片段管理：自然语言添加或修改片段",
+  "description": "用自然语言管理文本片段库：「加个 sig 内容 张三 13800138000」添加，「把 sig 改成 李四」修改。仅做添加和修改（add/edit），删除请在 snip 插件的候选列表中操作。片段存于 ~/.buddy/snippets.json，与 snip 插件共享。",
+  "keywords": ["snipm", "片段管理"],
+  "mode": "stdin",
+  "cmd": "./snip-mgr.sh",
+  "args": [],
+  "env": null,
+  "timeout": 15,
+  "systemPrompt": "你是文本片段管理助手。当用户想添加或修改文本片段时使用本工具。\n\n本工具只做两件事：\n- action=add：添加新片段（keyword 必须不存在）\n- action=edit：修改已存在片段的 content\n\n参数填法：\n- action：枚举值，只能是 \"add\" 或 \"edit\"\n- keyword：片段关键词，只能含字母数字 _ -（白名单），长度 1-64\n- content：片段内容，最长 10000 字符。支持占位符 {date}（当天日期）、{time}（当前时间）、{clipboard}（当前剪贴板）\n\n示例：\n- 「加个 sig 内容 张三 13800138000」→ action=add, keyword=sig, content=张三 13800138000\n- 「把 sig 改成 李四 13900139000」→ action=edit, keyword=sig, content=李四 13900139000\n- 「添加地址片段 内容 北京市朝阳区，关键词 addr」→ action=add, keyword=addr, content=北京市朝阳区\n\n不要用于：\n- 删除片段（用 snip 插件的候选列表删除）\n- 查询片段（用 snip <关键词> 直接取）\n- 列出片段（用 snip 空查询列全部）\n\nkeyword 已存在时用 edit（不用 add）；不存在时用 add（不用 edit）。",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "type": "string",
+        "enum": ["add", "edit"],
+        "description": "操作类型：add=添加新片段（keyword 不存在），edit=修改已存在片段"
+      },
+      "keyword": {
+        "type": "string",
+        "description": "片段关键词，只能含字母数字 _ -（白名单），长度 1-64"
+      },
+      "content": {
+        "type": "string",
+        "description": "片段内容，最长 10000 字符。支持占位符 {date}/{time}/{clipboard}"
+      }
+    },
+    "required": ["action", "keyword", "content"]
+  },
+  "deps": [
+    { "check": "jq", "brew": "jq", "label": "JSON 处理" }
+  ]
+}

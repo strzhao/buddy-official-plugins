@@ -1,0 +1,16 @@
+{
+  "name": "snip",
+  "version": "0.1.0",
+  "summary": "文本片段速取：snip <关键词> 秒回复制",
+  "description": "存常用文本片段（签名、地址、常用回复等），输入 snip <关键词> 立即取出并自动复制到剪贴板。支持 {date}/{time}/{clipboard} 动态占位符。空查询列出全部，模糊词列出候选，可从候选中删除片段。",
+  "keywords": ["snip", "片段", "snippet"],
+  "mode": "command",
+  "cmd": "./snip.sh",
+  "args": [],
+  "env": null,
+  "timeout": 5,
+  "autoCopyToClipboard": true,
+  "deps": [
+    { "check": "jq", "brew": "jq", "label": "JSON 处理" }
+  ]
+}
