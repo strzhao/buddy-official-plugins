@@ -66,21 +66,6 @@
         "path": "plugins/snip",
         "ref": "main"
       }
-    },
-    {
-      "name": "snip-mgr",
-      "version": "0.1.0",
-      "description": "文本片段管理：自然语言添加或修改片段",
-      "category": "utility",
-      "author": {
-        "name": "stringzhao"
-      },
-      "source": {
-        "source": "git-subdir",
-        "url": "https://github.com/strzhao/buddy-official-plugins",
-        "path": "plugins/snip-mgr",
-        "ref": "main"
-      }
     }
   ]
 }

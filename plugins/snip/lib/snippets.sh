@@ -120,7 +120,7 @@ snippets_list() {
 snippets_add() {
     local kw="$1"
     local content="$2"
-    # 校验 keyword
+    # 校验 keyword（锁外快速失败）
     if ! validate_keyword "$kw"; then
         echo "snippets_add: keyword 含非法字符（仅允许字母数字 _ -）" >&2
         return 1
@@ -129,34 +129,40 @@ snippets_add() {
         echo "snippets_add: content 超过长度上限（10000 字符）" >&2
         return 1
     fi
-    local data
-    if ! data="$(snippets_load 2>/dev/null)"; then
-        echo "snippets_add: snippets.json 损坏，拒绝写入以保护数据" >&2
-        return 2
-    fi
-    # 已存在检查
-    local exists
-    exists="$(echo "$data" | jq -r --arg k "$kw" '[.[] | select(.keyword == $k)] | length' 2>/dev/null)"
-    if [ "$exists" != "0" ]; then
-        echo "snippets_add: keyword '$kw' 已存在，请用 edit 修改" >&2
-        return 1
-    fi
-    # 原子写（C6 / AC-SNIP-15）
-    local ts
-    ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-    local newdata
-    newdata="$(echo "$data" | jq -c --arg k "$kw" --arg c "$content" --arg t "$ts" \
-        '. + [{keyword: $k, content: $c, created_at: $t, updated_at: $t}] | sort_by(.keyword)' 2>/dev/null)"
-    if [ -z "$newdata" ]; then
-        echo "snippets_add: 构造新数据失败" >&2
-        return 2
-    fi
-    if ! _snippets_atomic_write "$newdata"; then
-        echo "snippets_add: 原子写失败" >&2
-        return 2
-    fi
-    echo "已添加片段 '$kw'"
-    return 0
+    # read-modify-write 在 subshell + 文件锁内（AC-SNIP-15 并发事务原子），trap EXIT 解锁
+    (
+        trap '_snippets_unlock' EXIT
+        if ! _snippets_lock; then
+            echo "snippets_add: 获取文件锁超时" >&2
+            exit 2
+        fi
+        local data
+        if ! data="$(snippets_load 2>/dev/null)"; then
+            echo "snippets_add: snippets.json 损坏，拒绝写入以保护数据" >&2
+            exit 2
+        fi
+        local exists
+        exists="$(echo "$data" | jq -r --arg k "$kw" '[.[] | select(.keyword == $k)] | length' 2>/dev/null)"
+        if [ "$exists" != "0" ]; then
+            echo "snippets_add: keyword '$kw' 已存在，请用 edit 修改" >&2
+            exit 1
+        fi
+        local ts
+        ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        local newdata
+        newdata="$(echo "$data" | jq -c --arg k "$kw" --arg c "$content" --arg t "$ts" \
+            '. + [{keyword: $k, content: $c, created_at: $t, updated_at: $t}] | sort_by(.keyword)' 2>/dev/null)"
+        if [ -z "$newdata" ]; then
+            echo "snippets_add: 构造新数据失败" >&2
+            exit 2
+        fi
+        if ! _snippets_atomic_write "$newdata"; then
+            echo "snippets_add: 原子写失败" >&2
+            exit 2
+        fi
+        echo "已添加片段 '$kw'"
+        exit 0
+    )
 }
 
 # MARK: - snippets_edit：更新已存在（不存在则失败）
@@ -166,7 +172,7 @@ snippets_add() {
 snippets_edit() {
     local kw="$1"
     local content="$2"
-    # 校验 keyword（add 同款）
+    # 校验（锁外快速失败）
     if [ -z "$kw" ]; then
         echo "snippets_edit: keyword 不能为空" >&2
         return 1
@@ -175,34 +181,40 @@ snippets_edit() {
         echo "snippets_edit: content 超过长度上限（10000 字符）" >&2
         return 1
     fi
-    local data
-    if ! data="$(snippets_load 2>/dev/null)"; then
-        echo "snippets_edit: snippets.json 损坏，拒绝写入以保护数据" >&2
-        return 2
-    fi
-    # 不存在检查
-    local exists
-    exists="$(echo "$data" | jq -r --arg k "$kw" '[.[] | select(.keyword == $k)] | length' 2>/dev/null)"
-    if [ "$exists" != "1" ]; then
-        echo "snippets_edit: keyword '$kw' 不存在（无法 edit），请用 add 添加" >&2
-        return 1
-    fi
-    # 原子写（保留 created_at，更新 updated_at）
-    local ts
-    ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-    local newdata
-    newdata="$(echo "$data" | jq -c --arg k "$kw" --arg c "$content" --arg t "$ts" \
-        'map(if .keyword == $k then .content = $c | .updated_at = $t else . end) | sort_by(.keyword)' 2>/dev/null)"
-    if [ -z "$newdata" ]; then
-        echo "snippets_edit: 构造新数据失败" >&2
-        return 2
-    fi
-    if ! _snippets_atomic_write "$newdata"; then
-        echo "snippets_edit: 原子写失败" >&2
-        return 2
-    fi
-    echo "已更新片段 '$kw'"
-    return 0
+    # read-modify-write 在 subshell + 文件锁内（AC-SNIP-15 并发事务原子）
+    (
+        trap '_snippets_unlock' EXIT
+        if ! _snippets_lock; then
+            echo "snippets_edit: 获取文件锁超时" >&2
+            exit 2
+        fi
+        local data
+        if ! data="$(snippets_load 2>/dev/null)"; then
+            echo "snippets_edit: snippets.json 损坏，拒绝写入以保护数据" >&2
+            exit 2
+        fi
+        local exists
+        exists="$(echo "$data" | jq -r --arg k "$kw" '[.[] | select(.keyword == $k)] | length' 2>/dev/null)"
+        if [ "$exists" != "1" ]; then
+            echo "snippets_edit: keyword '$kw' 不存在（无法 edit），请用 add 添加" >&2
+            exit 1
+        fi
+        local ts
+        ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        local newdata
+        newdata="$(echo "$data" | jq -c --arg k "$kw" --arg c "$content" --arg t "$ts" \
+            'map(if .keyword == $k then .content = $c | .updated_at = $t else . end) | sort_by(.keyword)' 2>/dev/null)"
+        if [ -z "$newdata" ]; then
+            echo "snippets_edit: 构造新数据失败" >&2
+            exit 2
+        fi
+        if ! _snippets_atomic_write "$newdata"; then
+            echo "snippets_edit: 原子写失败" >&2
+            exit 2
+        fi
+        echo "已更新片段 '$kw'"
+        exit 0
+    )
 }
 
 # MARK: - snippets_del：删除（keyword 存在则删）
@@ -214,30 +226,38 @@ snippets_del() {
     if [ -z "$kw" ]; then
         return 0
     fi
-    local data
-    if ! data="$(snippets_load 2>/dev/null)"; then
-        echo "snippets_del: snippets.json 损坏，拒绝写入以保护数据" >&2
-        return 2
-    fi
-    # 不存在 → 直接成功（幂等）
-    local exists
-    exists="$(echo "$data" | jq -r --arg k "$kw" '[.[] | select(.keyword == $k)] | length' 2>/dev/null)"
-    if [ "$exists" = "0" ]; then
-        echo "snippets_del: keyword '$kw' 不存在（已删除）"
-        return 0
-    fi
-    local newdata
-    newdata="$(echo "$data" | jq -c --arg k "$kw" '[.[] | select(.keyword != $k)] | sort_by(.keyword)' 2>/dev/null)"
-    if [ -z "$newdata" ]; then
-        echo "snippets_del: 构造新数据失败" >&2
-        return 2
-    fi
-    if ! _snippets_atomic_write "$newdata"; then
-        echo "snippets_del: 原子写失败" >&2
-        return 2
-    fi
-    echo "已删除片段 '$kw'"
-    return 0
+    # read-modify-write 在 subshell + 文件锁内（AC-SNIP-15 并发事务原子）
+    (
+        trap '_snippets_unlock' EXIT
+        if ! _snippets_lock; then
+            echo "snippets_del: 获取文件锁超时" >&2
+            exit 2
+        fi
+        local data
+        if ! data="$(snippets_load 2>/dev/null)"; then
+            echo "snippets_del: snippets.json 损坏，拒绝写入以保护数据" >&2
+            exit 2
+        fi
+        # 不存在 → 直接成功（幂等）
+        local exists
+        exists="$(echo "$data" | jq -r --arg k "$kw" '[.[] | select(.keyword == $k)] | length' 2>/dev/null)"
+        if [ "$exists" = "0" ]; then
+            echo "snippets_del: keyword '$kw' 不存在（已删除）"
+            exit 0
+        fi
+        local newdata
+        newdata="$(echo "$data" | jq -c --arg k "$kw" '[.[] | select(.keyword != $k)] | sort_by(.keyword)' 2>/dev/null)"
+        if [ -z "$newdata" ]; then
+            echo "snippets_del: 构造新数据失败" >&2
+            exit 2
+        fi
+        if ! _snippets_atomic_write "$newdata"; then
+            echo "snippets_del: 原子写失败" >&2
+            exit 2
+        fi
+        echo "已删除片段 '$kw'"
+        exit 0
+    )
 }
 
 # MARK: - expand_placeholders：动态占位符展开
@@ -262,19 +282,20 @@ expand_placeholders() {
     local today now clip
     today="$(date +%Y-%m-%d 2>/dev/null || echo '{date}')"
     now="$(date +%H:%M 2>/dev/null || echo '{time}')"
-    # pbpaste 可能不可用（非 macOS），降级为原样保留
-    clip="$(pbpaste 2>/dev/null || echo '{clipboard}')"
-    # 精确替换（& 在 sed replacement 中需转义为 \&，避免被解释为「整个匹配」）
-    # 这里 today/now/clip 是普通字符串，& 若出现需转义
-    local today_esc now_esc clip_esc
-    today_esc="$(printf '%s' "$today" | sed 's/[&/\]/\\&/g')"
-    now_esc="$(printf '%s' "$now" | sed 's/[&/\]/\\&/g')"
-    clip_esc="$(printf '%s' "$clip" | sed 's/[&/\]/\\&/g')"
-    # 用 sed -e 串联三处替换；分隔符用 |（避免 content 含 / 时出错）
-    printf '%s' "$text" | sed \
-        -e "s|{date}|${today_esc}|g" \
-        -e "s|{time}|${now_esc}|g" \
-        -e "s|{clipboard}|${clip_esc}|g"
+    # P0-1 修复（product-ux-scorer 发现）：原 sed 替换在剪贴板多行时静默失败
+    # （sed replacement 含换行截断命令）→ snippets_get 空 stdout → 精确命中 fallthrough
+    # 候选 → autoCopy 不触发，用户 Cmd+V 粘贴旧内容。日常剪贴板常多行（段落/代码）。
+    # 改用 perl -pe（原生多行）+ $ENV 替换（replacement 无需转义）；并 lazy 化——
+    # 只在 text 含 {clipboard} 时才读 pbpaste（避免无条件副作用 + 性能）。
+    clip=""
+    if [[ "$text" == *"{clipboard}"* ]]; then
+        clip="$(pbpaste 2>/dev/null || echo '{clipboard}')"
+    fi
+    printf '%s' "$text" | DATE="$today" TIME="$now" CLIP="$clip" perl -pe '
+        s/\{date\}/$ENV{DATE}/g;
+        s/\{time\}/$ENV{TIME}/g;
+        s/\{clipboard\}/$ENV{CLIP}/g;
+    '
 }
 
 # MARK: - validate_keyword：白名单校验
@@ -295,6 +316,39 @@ validate_keyword() {
         return 0
     fi
     return 1
+}
+
+# MARK: - _snippets_lock/_snippets_unlock：文件锁（mkdir 原子，保证 read-modify-write 事务）
+#
+# AC-SNIP-15 并发安全：snippets_add/edit/del 是 read-modify-write；
+# _snippets_atomic_write 只保证单次 write 原子，不保证事务原子。
+# mkdir 是 POSIX 原子操作，作互斥锁；配合 subshell trap EXIT 退出自动解锁。
+# 含 stale lock 检测（写 PID，持有者进程不在则清理），防死锁。
+_snippets_lock() {
+    local lockdir="$BUDDY_SNIPPETS_FILE.lock"
+    local tries=0
+    while ! mkdir "$lockdir" 2>/dev/null; do
+        # 每 ~2s 检查锁持有者是否还活着（防 stale lock 死锁）
+        if [ $((tries % 40)) -eq 0 ]; then
+            local owner_pid
+            owner_pid="$(cat "$lockdir/pid" 2>/dev/null || true)"
+            if [ -n "$owner_pid" ] && ! kill -0 "$owner_pid" 2>/dev/null; then
+                rm -rf "$lockdir" 2>/dev/null || true
+                continue
+            fi
+        fi
+        tries=$((tries + 1))
+        if [ $tries -gt 200 ]; then
+            return 1  # ~10s 超时
+        fi
+        sleep 0.05
+    done
+    echo "$$" > "$lockdir/pid" 2>/dev/null || true
+    return 0
+}
+
+_snippets_unlock() {
+    rm -rf "$BUDDY_SNIPPETS_FILE.lock" 2>/dev/null || true
 }
 
 # MARK: - _snippets_atomic_write：内部原子写（临时文件 + mv rename）
